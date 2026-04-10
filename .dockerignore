@@ -1,0 +1,9 @@
+node_modules
+.git
+.gitignore
+npm-debug.log
+output.txt
+output_utf8.txt
+test.js
+Dockerfile
+.dockerignore
