@@ -205,10 +205,26 @@ async function getAddon() {
       const b64 = Buffer.from(strm.embedUrl).toString('base64');
       const BASE_URL = process.env.ADDON_URL || 'http://127.0.0.1:7000';
       
+      let refererUrl = strm.embedUrl;
+      try {
+        const u = new URL(strm.embedUrl);
+        refererUrl = u.origin + '/';
+      } catch(e){}
+
       streams.push({
         name: "Streamed (Direct)",
         title: title,
-        url: `${BASE_URL.replace(/\/$/, '')}/resolve/${encodeURIComponent(b64)}`
+        url: `${BASE_URL.replace(/\/$/, '')}/resolve/${encodeURIComponent(b64)}`,
+        behaviorHints: {
+          notWebReady: true,
+          proxyHeaders: {
+            request: {
+              "Referer": refererUrl,
+              "Origin": refererUrl,
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+          }
+        }
       });
 
       streams.push({
