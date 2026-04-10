@@ -73,7 +73,7 @@ app.get('/resolve/:b64Url', async (req, res) => {
     await page.close().catch(e => console.error("Error closing page", e));
   } catch (err) {
     console.error(`[Resolve] Error:`, err);
-    res.status(500).send("Internal Server Error");
+    res.status(500).send(`Internal Server Error: ${err.message}\n\nStack:\n${err.stack}`);
   }
 });
 
