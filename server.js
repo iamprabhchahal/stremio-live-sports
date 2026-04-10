@@ -10,7 +10,7 @@ async function getBrowser() {
   if (!browserPromise) {
     browserPromise = puppeteer.launch({ 
       headless: 'new',
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] 
     });
   }
