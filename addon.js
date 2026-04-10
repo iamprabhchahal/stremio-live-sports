@@ -93,6 +93,67 @@ async function buildManifest() {
 }
 
 // We'll create the builder initialization inside a factory since manifest is async
+const puppeteer = require('puppeteer');
+
+let browserPromise = null;
+async function getBrowser() {
+  if (!browserPromise) {
+    browserPromise = puppeteer.launch({ 
+      headless: 'new',
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath(),
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] 
+    });
+  }
+  return browserPromise;
+}
+
+// Memory cache for extracted m3u8 URLs
+const resolvedStreamsCache = {};
+
+async function extractM3u8(embedUrl) {
+  if (resolvedStreamsCache[embedUrl]) {
+    // Cache for 2 hours (or until server restarts)
+    if (Date.now() - resolvedStreamsCache[embedUrl].time < 2 * 60 * 60 * 1000) {
+      return resolvedStreamsCache[embedUrl].m3u8;
+    }
+  }
+
+  let page;
+  try {
+    const browser = await getBrowser();
+    page = await browser.newPage();
+    let m3u8Url = null;
+
+    const timeoutPromise = new Promise(resolve => setTimeout(resolve, 15000));
+    const m3u8Promise = new Promise(resolve => {
+      page.on('request', request => {
+        if (request.url().includes('.m3u8')) {
+          const url = request.url();
+          if (!m3u8Url) {
+            m3u8Url = url;
+            resolve(url);
+          }
+        }
+      });
+    });
+
+    try {
+      await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    } catch(e) {}
+
+    await Promise.race([m3u8Promise, timeoutPromise]);
+    await page.close().catch(()=>{});
+
+    if (m3u8Url) {
+      resolvedStreamsCache[embedUrl] = { m3u8: m3u8Url, time: Date.now() };
+    }
+    return m3u8Url;
+  } catch(e) {
+    if (page) await page.close().catch(()=>{});
+    return null;
+  }
+}
+
 async function getAddon() {
   const manifest = await buildManifest();
   const builder = new addonBuilder(manifest);
@@ -188,44 +249,47 @@ async function getAddon() {
         const res = await fetch(`https://streamed.pk/api/stream/${source.source}/${source.id}`);
         const streamData = await res.json();
         allStreams.push(...streamData);
-      } catch (e) {
-        console.error("Error fetching stream data for source:", source, e);
-      }
+      } catch (e) {}
     }
 
     const streams = [];
 
-    // Stremio supports multiple stream objects
+    // To prevent Stremio from timing out, we only extract the first valid direct stream inline
+    let extractedM3u8 = null;
+    let refererUrl = 'https://embedsports.top/'; // fallback
+    let bestStream = allStreams.find(s => s.embedUrl);
+    
+    if (bestStream) {
+      extractedM3u8 = await extractM3u8(bestStream.embedUrl);
+      try {
+        refererUrl = new URL(bestStream.embedUrl).origin + '/';
+      } catch(e){}
+    }
+
     for (const strm of allStreams) {
       if (!strm.embedUrl) continue;
-
+      
+      const isBestStream = (strm === bestStream);
       const title = `Direct Stream (${strm.language} ${strm.hd ? 'HD' : 'SD'}) [${strm.source.toUpperCase()}]`;
       const fallbackTitle = `Open in Browser (${strm.language} ${strm.hd ? 'HD' : 'SD'}) [${strm.source.toUpperCase()}]`;
 
-      const b64 = Buffer.from(strm.embedUrl).toString('base64');
-      const BASE_URL = process.env.ADDON_URL || 'http://127.0.0.1:7000';
-      
-      let refererUrl = strm.embedUrl;
-      try {
-        const u = new URL(strm.embedUrl);
-        refererUrl = u.origin + '/';
-      } catch(e){}
-
-      streams.push({
-        name: "Streamed (Direct)",
-        title: title,
-        url: `${BASE_URL.replace(/\/$/, '')}/resolve/${encodeURIComponent(b64)}`,
-        behaviorHints: {
-          notWebReady: true,
-          proxyHeaders: {
-            request: {
-              "Referer": refererUrl,
-              "Origin": refererUrl,
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      if (isBestStream && extractedM3u8) {
+         streams.push({
+          name: "Streamed (Direct)",
+          title: title,
+          url: extractedM3u8,
+          behaviorHints: {
+            notWebReady: true,
+            proxyHeaders: {
+              request: {
+                "Referer": refererUrl,
+                "Origin": refererUrl,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+              }
             }
           }
-        }
-      });
+        });
+      }
 
       streams.push({
         name: "Streamed (Ext)",
