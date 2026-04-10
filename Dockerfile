@@ -1,8 +1,5 @@
 FROM ghcr.io/puppeteer/puppeteer:latest
 
-# We must set this explicitly so that puppeteer instances run properly in docker 
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
 WORKDIR /usr/src/app
 
